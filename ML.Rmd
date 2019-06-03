@@ -1,0 +1,112 @@
+---
+title: "Machine Learning"
+author: "Paras"
+date: "3 June 2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#### Downloading and loading data
+```{r}
+fileUrl1 <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+download.file(fileUrl1, destfile = "./pml-training.csv", method = "curl")
+fileUrl2 <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+download.file(fileUrl2, destfile = "./pml-testing.csv", method = "curl")
+TrainData <- read.csv("pml-training.csv")
+TestData <- read.csv("pml-testing.csv")
+```
+
+Clearly, the data contains lot of NA values and blank clolumns. We will remove these columns as they will not produce any information. The first seven columns give the information about who took the test and the timestamps, hence, we will not take them into our model. 
+
+```{r}
+# we will remove those columns having 95% or more entries as NA or blank entries.
+remCol <- which(colSums(is.na(TrainData) | TrainData == "") > 0.95*dim(TrainData)[1])
+CleanTrainData <- TrainData[ , -remCol]
+CleanTrainData <- CleanTrainData[ , -c(1:7)]
+dim(CleanTrainData)
+# Repeat the same for TestData
+remCol <- which(colSums(is.na(TestData) | TestData == "") > 0.95*dim(TestData)[1])
+CleanTestData <- TestData[ , -remCol]
+CleanTestData <- CleanTestData[ , -1]
+dim(CleanTestData)
+```
+
+#### Partition of training set
+After cleaning the data, we now create a partition of the data training set
+```{r}
+library(caret)
+library(rattle)
+set.seed(4321)
+inTrain <- createDataPartition(CleanTrainData$classe, p = 0.8, list = FALSE)
+training <- CleanTrainData[inTrain, ]
+testing <- CleanTrainData[-inTrain, ]
+dim(training)
+dim(testing)
+```
+
+## Building Model
+In this section we will test 3 models: classification tree, gradient boosting method and random forest.
+We will use cross-validation technique to limit the effects of overfitting and improve the efficiency of models. We will use 5-folds to cross validate. 
+
+#### Model with Classification Tree
+``` {r}
+trControl <- trainControl(method = "cv", number = 5)
+fit_CT <- train(classe ~ ., data = training, method = "rpart", trControl = trControl)
+fancyRpartPlot(fit_CT$finalModel)
+pred_CT <- predict(fit_CT, newdata = testing)
+confMat_CT <- confusionMatrix(testing$classe, pred_CT)
+confMat_CT$table
+confMat_CT$overall[1]
+```
+
+We can see that the accuracy of classification tree model is very low (about 49%). This means that the outcome is poorly predicted by the predictors.
+
+#### Model with Gradient Boosting Method
+```{r}
+fit_GBM <- train(classe ~ ., data = training, method = "gbm", trControl = trControl, verbose = FALSE)
+print(fit_GBM)
+plot(fit_GBM)
+pred_GBM <- predict(fit_GBM, newdata = testing)
+confMat_GBM <- confusionMatrix(testing$classe, pred_GBM)
+confMat_GBM$table
+confMat_GBM$overall[1]
+```
+
+The accuracy of Gradient Boosting Method has increased significantly to 96.32% and is considered to be a good fit. We will now check for Random Forest Model.
+
+#### Model With Random Forest Method
+```{r}
+fit_RF <- train(classe ~., data = training, method = "rf", trControl = trControl, verbose = FALSE)
+print(fit_RF)
+plot(fit_RF, main = "Accuracy of predictors with number of predictors")
+pred_RF <- predict(fit_RF, newdata = testing)
+confMat_RF <- confusionMatrix(testing$classe, pred_RF)
+confMat_RF$table
+confMat_RF$overall[1]
+```
+
+The Accuracy of Random Forest Model has increased further to 99.36% using cross-validation of 5 steps and it is the best of the 3 models considered. 
+Moreover, from the plot it can be concluded that optimal number of predictors for maximum accuracy is 27. There is no significant increase of the accuracy with 2 predictors and 27 but the slope decreases more with more than 27 predictors. The accuracy does not decrease very rapidly after 27 predictors, which means that there will be some dependencies between the predictors.
+
+#### Which Predictors are important?
+
+We will now find which predictors mainly affect accuracy
+```{r}
+names(fit_RF$finalModel)
+fit_RF$finalModel$classes
+plot(fit_RF$finalModel, main = "Model error of Random Forest model by number of  trees")
+# compute the most important predictors
+MostImpPred <- varImp(fit_RF)
+MostImpPred
+```
+From the plot, it can be seen that using more than approx 30 number of trees does not decrease the error significantly.
+
+## Conclusion
+Applying our model to the test data originally downloaded
+```{r}
+finalpred <- predict(fit_RF, newdata = CleanTestData)
+finalpred
+```
